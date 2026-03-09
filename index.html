@@ -1,0 +1,142 @@
+import streamlit as st
+import requests
+import base64
+
+# --- NEW: Custom Colors using CSS ---
+st.markdown("""
+    <style>
+    /* Change the main background color */
+    .stApp {
+        background-color: #f4f6f9; 
+    }
+    /* Change the color of all headers */
+    h1, h2, h3 {
+        color: #1f4e79; 
+    }
+    /* Style the sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #e0e7ff;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🎓 Next-Gen AI Student Toolkit")
+
+st.sidebar.title("AI Features")
+selected_tool = st.sidebar.radio(
+    "Choose a Tool:",
+    ["General Chat", "ATS Resume Builder", "Career Path Suggester", "Interview Prep", "📂 View Saved Resumes"]
+)
+
+# ---------------------------------------------------------
+# FEATURE: VIEW SAVED RESUMES
+# ---------------------------------------------------------
+if selected_tool == "📂 View Saved Resumes":
+    st.markdown("### 📂 Your Saved Resumes")
+    
+    try:
+        # Ask the backend for all saved resumes
+        res = requests.get("http://127.0.0.1:8000/get_resumes")
+        saved_resumes = res.json()
+        
+        if not saved_resumes:
+            st.info("No resumes saved yet. Go to the ATS Resume Builder to create one!")
+        else:
+            for resume in saved_resumes:
+                with st.expander(f"Resume: {resume['name']}"):
+                    # Show the photo if it exists
+                    if resume['photo']:
+                        # Decode the text back into an image
+                        image_bytes = base64.b64decode(resume['photo'])
+                        st.image(image_bytes, width=150)
+                    
+                    # Show the text
+                    st.markdown(resume['text'])
+                    
+    except Exception as e:
+        st.error("Could not load resumes. Is the backend running?")
+
+# ---------------------------------------------------------
+# FEATURE: ATS RESUME BUILDER (With Photo Upload & Save)
+# ---------------------------------------------------------
+elif selected_tool == "ATS Resume Builder":
+    st.markdown("### 📄 ATS Resume Builder")
+    
+    # New: Photo Uploader
+    uploaded_photo = st.file_uploader("Upload a Professional Photo (Optional)", type=["png", "jpg", "jpeg"])
+    
+    user_input = st.text_area("List your education and skills:", height=150)
+    
+    if st.button("Generate AI Resume"):
+        if user_input.strip():
+            with st.spinner("Writing your resume..."):
+                res = requests.post(
+                    "http://127.0.0.1:8000/generate",
+                    json={"tool": "resume", "text": user_input}
+                )
+                
+                # Save the generated text into Streamlit's temporary memory
+                st.session_state['generated_resume'] = res.json()["response"]
+                
+                # Convert the uploaded photo into base64 text so we can send it easily
+                if uploaded_photo is not None:
+                    photo_bytes = uploaded_photo.getvalue()
+                    base64_photo = base64.b64encode(photo_bytes).decode('utf-8')
+                    st.session_state['photo_data'] = base64_photo
+                else:
+                    st.session_state['photo_data'] = ""
+
+    # If a resume has been generated, show it and offer to save it
+    if 'generated_resume' in st.session_state:
+        st.markdown("---")
+        st.markdown("### Your Generated Resume")
+        
+        # Display the photo if uploaded
+        if st.session_state['photo_data']:
+            image_bytes = base64.b64decode(st.session_state['photo_data'])
+            st.image(image_bytes, width=150)
+            
+        st.markdown(st.session_state['generated_resume'])
+        
+        st.markdown("---")
+        # Save Section
+        student_name = st.text_input("Enter your name to save this resume:")
+        if st.button("Save to Database"):
+            if student_name:
+                save_data = {
+                    "student_name": student_name,
+                    "resume_text": st.session_state['generated_resume'],
+                    "photo_data": st.session_state['photo_data']
+                }
+                save_res = requests.post("http://127.0.0.1:8000/save_resume", json=save_data)
+                st.success(save_res.json()["message"])
+            else:
+                st.warning("Please enter your name before saving.")
+
+# ---------------------------------------------------------
+# OTHER FEATURES (Chat, Career, Interview)
+# ---------------------------------------------------------
+else:
+    tool_mapping = {
+        "General Chat": "chat",
+        "Career Path Suggester": "career",
+        "Interview Prep": "interview"
+    }
+    
+    if selected_tool == "General Chat":
+        st.markdown("### 💬 Developer Chatbot")
+    elif selected_tool == "Career Path Suggester":
+        st.markdown("### 🚀 Career Path Suggester")
+    else:
+        st.markdown("### 🎤 Interview Prep")
+
+    user_input = st.text_area("Input Details:", height=150)
+
+    if st.button("Generate AI Response"):
+        if user_input.strip():
+            with st.spinner("Processing..."):
+                res = requests.post(
+                    "http://127.0.0.1:8000/generate",
+                    json={"tool": tool_mapping[selected_tool], "text": user_input}
+                )
+                st.markdown(res.json()["response"])
